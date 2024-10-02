@@ -1,0 +1,109 @@
+#!/bin/bash
+
+# Function to create a new user
+create_user() {
+  local USERNAME=$1
+  local PASSWORD=$2
+
+  # Check if the username is already taken
+  if id -u "$USERNAME" &>/dev/null; then
+    echo "Username already taken. Please choose a different username."
+    return 1
+  fi
+
+  # Create the new user
+  if ! sudo useradd -m -s /bin/bash "$USERNAME"; then
+    echo "Failed to create user $USERNAME."
+    return 1
+  fi
+
+  # Set the password
+  if ! echo "$USERNAME:$PASSWORD" | sudo chpasswd; then
+    echo "Failed to set password for user $USERNAME."
+    return 1
+  fi
+
+  # Add the user to the sudo group (optional)
+  if ! sudo usermod -aG sudo "$USERNAME"; then
+    echo "Failed to add user $USERNAME to sudo group."
+    return 1
+  fi
+
+  # Update the /etc/skel/.bashrc file to set the default shell prompt
+  update_bashrc
+}
+
+# Function to update the /etc/skel/.bashrc file
+update_bashrc() {
+  if ! sudo tee -a /etc/skel/.bashrc <<EOF
+PS1='\[\e[01;32m\]\u@\h\[\e[00m\]:\[\e[01;34m\]\w\[\e[00m\]\$ '
+EOF
+  then
+    echo "Failed to update /etc/skel/.bashrc file."
+    return 1
+  fi
+}
+
+# Function to validate input
+validate_input() {
+  local USERNAME=$1
+  local PASSWORD=$2
+
+  # Check if the username is valid
+  if [[ ! $USERNAME =~ ^[a-zA-Z0-9_]+$ ]]; then
+    echo "Invalid username. Please use only letters, numbers, and underscores."
+    return 1
+  fi
+
+  # Check if the password is strong enough
+  if [[ ${#PASSWORD} -lt 8 ]]; then
+    echo "Password is too short. Please use a password with at least 8 characters."
+    return 1
+  fi
+
+  # Check if the password contains at least one uppercase letter, one lowercase letter, one number, and one special character
+  if [[ ! $PASSWORD =~ [A-Z] ]] || [[ ! $PASSWORD =~ [a-z] ]] || [[ ! $PASSWORD =~ [0-9] ]] || [[ ! $PASSWORD =~ [^a-zA-Z0-9] ]]; then
+    echo "Password is not strong enough. Please use a password with at least one uppercase letter, one lowercase letter, one number, and one special character."
+    return 1
+  fi
+}
+
+# Function to handle errors
+handle_error() {
+  local MESSAGE=$1
+  echo "Error: $MESSAGE"
+  # Log the error to a file
+  sudo echo "Error: $MESSAGE" >> /var/log/user_creation_error.log
+  exit 1
+}
+
+# Main script
+echo "Create a new user and password:"
+read -p "Username: " USERNAME
+read -s -p "Password: " PASSWORD
+echo ""
+
+# Validate input
+if ! validate_input "$USERNAME" "$PASSWORD"; then
+  handle_error "Invalid input. Please try again."
+fi
+
+# Create the new user
+if ! create_user "$USERNAME" "$PASSWORD"; then
+  handle_error "Failed to create user $USERNAME."
+fi
+
+# Switch to the new user
+sudo su - "$USERNAME"
+
+# Delete the Kali user permanently
+sudo userdel -r kali
+sudo sed -i '/kali/d' /etc/sudoers
+sudo rm -rf /home/kali
+sudo usermod -L kali
+
+# Prevent the new user from enabling the Kali user again
+sudo echo "Defaults:$USERNAME !authenticate" >> /etc/sudoers
+
+# Reboot the system
+sudo reboot
