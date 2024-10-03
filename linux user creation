@@ -96,14 +96,17 @@ fi
 # Switch to the new user
 sudo su - "$USERNAME"
 
-# Delete the Kali user permanently
-sudo userdel -r kali
-sudo sed -i '/kali/d' /etc/sudoers
-sudo rm -rf /home/kali
-sudo usermod -L kali
+# Delete the default user (e.g. kali, ubuntu, etc.)
+DEFAULT_USER=$(getent passwd 1000 | cut -d: -f1)
+if [ "$DEFAULT_USER" != "$USERNAME" ]; then
+  sudo userdel -r "$DEFAULT_USER"
+  sudo sed -i "/$DEFAULT_USER/d" /etc/sudoers
+  sudo rm -rf /home/"$DEFAULT_USER"
+  sudo usermod -L "$DEFAULT_USER"
 
-# Prevent the new user from enabling the Kali user again
-sudo echo "Defaults:$USERNAME !authenticate" >> /etc/sudoers
+  # Prevent the new user from enabling the default user again
+  sudo echo "Defaults:$USERNAME !authenticate" >> /etc/sudoers
+fi
 
 # Reboot the system
 sudo reboot
