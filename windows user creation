@@ -1,0 +1,142 @@
+# Function to create a new user
+function Create-User {
+    param (
+        [string]$Username,
+        [securestring]$Password
+    )
+
+    # Convert secure string to plain text for user creation
+    $PasswordPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password))
+
+    # Check if the username is already taken
+    if (Get-LocalUser -Name $Username -ErrorAction SilentlyContinue) {
+        Write-Host "Username already taken. Please choose a different username."
+        return $false
+    }
+
+    try {
+        # Create the new user
+        New-LocalUser -Name $Username -Password (ConvertTo-SecureString -String $PasswordPlain -AsPlainText -Force) -PasswordNeverExpires -UserMayNotChangePassword
+        Write-Host "User $Username created successfully."
+    } catch {
+        Write-Host "Failed to create user. Error: $($_.Exception.Message)"
+        return $false
+    }
+
+    try {
+        # Add the user to the Administrators group
+        Add-LocalGroupMember -Group "Administrators" -Member $Username
+        Write-Host "User $Username added to Administrators group."
+    } catch {
+        Write-Host "Failed to add user to Administrators group. Error: $($_.Exception.Message)"
+        return $false
+    }
+
+    return $true
+}
+
+# Function to disable the current user
+function Disable-CurrentUser {
+    param (
+        [string]$CurrentUsername
+    )
+
+    # Disable the current user
+    try {
+        Disable-LocalUser -Name $CurrentUsername
+        Write-Host "User $CurrentUsername has been disabled."
+    } catch {
+        Write-Host "Failed to disable user. Error: $($_.Exception.Message)"
+    }
+}
+
+# Function to delete the default user
+function Delete-DefaultUser {
+    param (
+        [string]$DefaultUsername
+    )
+
+    try {
+        # Delete the default user
+        Remove-LocalUser -Name $DefaultUsername
+        Write-Host "Default user $DefaultUsername deleted successfully."
+    } catch {
+        Write-Host "Failed to delete default user. Error: $($_.Exception.Message)"
+    }
+
+    try {
+        # Remove the default user's home directory
+        Remove-Item -Path "C:\Users\$DefaultUsername" -Recurse -Force
+        Write-Host "Default user's home directory removed successfully."
+    } catch {
+        Write-Host "Failed to remove default user's home directory. Error: $($_.Exception.Message)"
+    }
+}
+
+# Function to validate password strength
+function Validate-Password {
+    param (
+        [string]$Password
+    )
+
+    if ($Password.Length -lt 8) {
+        Write-Host "Password is too short. Must be at least 8 characters."
+        return $false
+    }
+    if (-not ($Password -match '[A-Z')) {
+        Write-Host "Password must contain at least one uppercase letter."
+        return $false
+    }
+    if (-not ($Password -match '[a-z]')) {
+        Write-Host "Password must contain at least one lowercase letter."
+        return $false
+    }
+    if (-not ($Password -match '[0-9]')) {
+        Write-Host "Password must contain at least one number."
+        return $false
+    }
+    if (-not ($Password -match '[^a-zA-Z0-9]')) {
+        Write-Host "Password must contain at least one special character."
+        return $false
+    }
+
+    return $true
+}
+
+# Main script
+Write-Host "Create a new user and password:"
+$Username = Read-Host "Username"
+$Password = Read-Host "Password" -AsSecureString
+
+# Convert secure string to plain text for validation
+$PasswordPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password))
+
+# Validate the password
+if (-not (Validate-Password -Password $PasswordPlain)) {
+    Write-Host "Invalid password. Exiting script."
+    exit
+}
+
+# Create the new user
+if (-not (Create-User -Username $Username -Password $Password)) {
+    Write-Host "User creation failed. Exiting script."
+    exit
+}
+
+# Get the current username
+$CurrentUsername = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name.Split("\")[1]
+
+# Disable the current user
+Disable-CurrentUser -CurrentUsername $CurrentUsername
+
+# Specify the default username to delete
+$DefaultUsername = "user" # Change this to your default username
+Delete-DefaultUser -DefaultUsername $DefaultUsername
+
+# Restart the system
+$confirm = Read-Host "Are you sure you want to restart the system? (y/n)"
+if ($confirm -eq "y") {
+    Restart-Computer -Force
+} else {
+    Write-Host "Restart canceled."
+}
