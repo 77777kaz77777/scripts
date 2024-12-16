@@ -1,0 +1,11 @@
+# Script to lock down PowerShell
+# Block all other commands
+function Block-All {
+    Write-Host "Access Denied: You can only run the account creation script."
+}
+
+# Setting the profile to block access to other commands
+Set-Alias Block Block-All
+
+# Run your account creation script
+& "C:\Users\user\user.ps1"
