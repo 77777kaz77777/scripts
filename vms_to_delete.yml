@@ -1,0 +1,38 @@
+---
+- name: Stop and delete multiple VMs on Proxmox
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: true
+
+  vars:
+    # List the VMIDs you want to remove
+    vms_to_delete:
+      - 310
+      - 311
+      - 312
+
+  tasks:
+    - name: Stop each VM (ignore if already stopped)
+      ansible.builtin.command:
+        cmd: qm stop {{ item }} --skiplock
+      loop: "{{ vms_to_delete }}"
+      register: stop_results
+      failed_when: false
+
+    - name: Destroy each VM (removes config & disks)
+      ansible.builtin.command:
+        cmd: qm destroy {{ item }} --purge
+      loop: "{{ vms_to_delete }}"
+      register: destroy_results
+      failed_when: false
+
+    - name: Show summary of what was stopped & destroyed
+      ansible.builtin.debug:
+        msg:
+          - "Stopped VMIDs: {{ stop_results.results 
+                                 | map(attribute='item') 
+                                 | list }}"
+          - "Destroyed VMIDs: {{ destroy_results.results 
+                                   | map(attribute='item') 
+                                   | list }}"
