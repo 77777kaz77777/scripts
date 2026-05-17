@@ -1,0 +1,46 @@
+---
+- name: Clone multiple VMs/Templates via qm on Proxmox
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: true
+
+  vars:
+    # define all the clones you want to make:
+    clones:
+      - source_vmid: 102
+        new_vmid:    200
+        name:        web-200
+      - source_vmid: 103
+        new_vmid:    201
+        name:        db-201
+      - source_vmid: 104
+        new_vmid:    202
+        name:        app-202
+
+    # common storage where all clones will go
+    storage: NFS
+
+  tasks:
+    - name: Clone each VM/template
+      ansible.builtin.command: >
+        qm clone {{ item.source_vmid }} {{ item.new_vmid }}
+        --name {{ item.name }}
+        --storage {{ storage }}
+        --full 1
+      loop: "{{ clones }}"
+      register: clone_results
+      changed_when: clone_results is changed
+
+    - name: Show clone results
+      ansible.builtin.debug:
+        var: clone_results.results
+
+    - name: Start each cloned VM
+      ansible.builtin.command: qm start {{ item.new_vmid }}
+      loop: "{{ clones }}"
+      register: start_results
+
+    - name: Show start results
+      ansible.builtin.debug:
+        var: start_results.results

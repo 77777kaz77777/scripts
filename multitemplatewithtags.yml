@@ -1,0 +1,85 @@
+---
+- name: Clone multiple VMs/Templates via qm on Proxmox with tags (skipping missing)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: true
+
+  vars:
+    clones:
+      - source_vmid: 101
+        new_vmid:    310
+        name:        winserver2025
+        tags:        infosomething
+      - source_vmid: 100
+        new_vmid:    311
+        name:        ubuntudesktop
+        tags:        infosomething
+      - source_vmid: 125      # this one doesn’t exist on your node
+        new_vmid:    312
+        name:        Centos9
+        tags:        infosomething
+
+    storage: NFS            # NFS datastore for all clones
+
+  tasks:
+    - name: Check which source VMs/templates actually exist
+      ansible.builtin.command:
+        cmd: qm config {{ item.source_vmid }}
+      register: vm_config_check
+      failed_when: false
+      changed_when: false
+      loop: "{{ clones }}"
+      loop_control:
+        label: "{{ item.source_vmid }}"
+
+    - name: Build list of valid clones (only those with rc==0)
+      ansible.builtin.set_fact:
+        valid_clones: >-
+          {{ vm_config_check.results
+             | selectattr('rc','equalto',0)
+             | map(attribute='item')
+             | list }}
+
+    - name: Warn about any missing source VM/templates
+      ansible.builtin.debug:
+        msg: "Skipping source_vmid {{ item.item.source_vmid }}: not found on node"
+      loop: "{{ vm_config_check.results | selectattr('rc','ne',0) }}"
+      loop_control:
+        label: "{{ item.item.source_vmid }}"
+
+    - name: Clone each valid VM/template
+      ansible.builtin.command: >
+        qm clone {{ item.source_vmid }} {{ item.new_vmid }}
+        --name {{ item.name }}
+        --storage {{ storage }}
+        --full 1
+      loop: "{{ valid_clones }}"
+      loop_control:
+        label: "{{ item.source_vmid }}"
+      register: clone_results
+
+    - name: Tag each cloned VM
+      ansible.builtin.command: >
+        qm set {{ item.new_vmid }}
+        --tags {{ item.tags }}
+      loop: "{{ valid_clones }}"
+      loop_control:
+        label: "{{ item.new_vmid }}"
+      register: tag_results
+
+    - name: Start each cloned VM
+      ansible.builtin.command:
+        cmd: qm start {{ item.new_vmid }}
+      loop: "{{ valid_clones }}"
+      loop_control:
+        label: "{{ item.new_vmid }}"
+      register: start_results
+
+    - name: Summary of actions
+      ansible.builtin.debug:
+        msg:
+          - "Cloned VMIDs: {{ valid_clones | map(attribute='new_vmid') | list }}"
+          - "Clone output snippets: {{ clone_results.results | map(attribute='stdout_lines') | list }}"
+          - "Tag output snippets:  {{ tag_results.results  | map(attribute='stdout_lines') | list }}"
+          - "Start output snippets: {{ start_results.results | map(attribute='stdout_lines') | list }}"
